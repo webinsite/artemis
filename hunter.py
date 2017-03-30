@@ -1,0 +1,216 @@
+#!/usr/bin/env python
+
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
+from models import Filename, Scan, Directory
+from timeout import timeout, TimeoutError
+import re
+import os
+import time
+import hashlib
+import json
+import datetime
+import config
+
+
+FAKE_HASH = False
+config = config.DevConfiguration()
+engine = create_engine(config.SQLALCHEMY_DATABASE_URI)
+DBSession = sessionmaker(bind=engine)
+session = DBSession()
+
+def get_directory_root(excludes, directory='/'):
+    """Return a list of the directories root after removing
+    excluded directories.
+
+    Keywork arguments:
+    directory -- the directory you wish to list (default '/')
+
+    Notes:
+    WARNING :: Have yet to test outside of using '/' as the directory,
+    I assume this will not work with self.scan_filesystem().
+    """
+    return list(set(os.listdir(directory)) - set(excludes))
+
+
+class FileDbEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, File):
+            return {
+                "hash": obj.hash,
+                "last_seen": obj.last_seen
+            }
+        return json.JSONEncoder.default(self, obj)
+
+
+class File:
+    def __init__(self, path):
+        self.ignore = self.compile_regex()
+        self.path = path
+        self.read = False
+        self.last_seen = None
+
+        self.analyze()
+
+    def analyze(self):
+        self.last_seen = time.time()
+        try:
+            self.hash = self.sha256()
+            self.read = True
+        except IOError:
+            self.hash = None
+            self.read = False
+            pass
+
+    def compile_regex(self):
+        keywords = ['social security number','first name',
+                'last name', 'middle initial', 'middle name',
+                'phone number','date of birth','address','doctor','md','phd',
+                'employment','employer','\d{3}-\d{2}-\d{4}','ssn']
+        regex = ""
+        compiled = "|".join(keywords)
+        return compiled
+
+    def has_phi(self, string):
+        regex = re.compile(self.ignore)
+        ssn = re.match(regex,string)
+        if ssn:
+            return True
+        return False
+
+    def get_acronym(self, keyword):
+       return  "".join(item[0] for item in keyword.split())
+
+    @timeout(15)
+    def sha256(self):
+        phi = False
+        self.phi = None
+        if FAKE_HASH:
+            return ""
+        h = hashlib.sha256(self.path)
+        try:
+            with open(self.path, "rb") as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    if self.has_phi(chunk.lower()):
+                        phi = True
+                    #    print self.path
+                        #self.phi = {'keyword':self.keyword,'path':self.path,'string':chunk.lower()}
+                        #print '#### Potential PHI Found #### : ', self.path
+
+                    h.update(chunk)
+                if phi:
+                    print self.path
+        except TimeoutError, e:
+            return False
+        return h.hexdigest()
+
+
+class FileWalker:
+    def __init__(self, path, ignored_dirs=[]):
+        self.root_path = path
+        self.metrics = {}
+        self.file_count = 0
+        self.dir_count = 0
+        self.dir_skipped = 0
+        self.dir_added = 0
+        self.ignored_dirs = ['/dev','/boot']
+
+        self.start_time = 0
+        self.end_time = 0
+
+        self.file_map = {}
+        self.problem_files = {}
+
+        self.file_db = 'file_db.json'
+
+    @property
+    def scan_duration(self):
+        if self.end_time == 0:
+            return None
+        return round(self.end_time - self.start_time, 2)
+
+    @property
+    def file_per_min(self):
+        if self.end_time == 0 or self.file_count == 0:
+            return None
+        return round(self.file_count / ((self.end_time - self.start_time) / 60.0), 2)
+
+    def write_db(self, db_model, kwargs):
+        """Try to add the directory path and hash to the Directory
+        database.  Rollback if the hash already exists
+
+        Keyword arguments:
+        directory_path -- Full path of the directory_path
+
+        Notes:
+        """
+        try:
+            entry = db_model(
+                created_at=datetime.datetime.now(),
+                **kwargs
+                )
+            session.add(entry)
+            session.commit()
+            self.dir_added += 1
+            return entry
+        except IntegrityError, e:
+            session.rollback()
+            self.dir_skipped += 1
+        return None
+
+    def write_directory_to_db(self, db_model, directory_path):
+        return self.write_db(db_model,directory_path)
+
+    def is_ascii(self, string):
+        """Breaks loop if any character isn't valid ascii.  Its a dirty
+        hack but its quick and efficient
+
+        Keyword arguments:
+        string -- the string needed for validation
+        """
+        # An exploit to return false as soon as a non-ascii character is found
+        return all(ord(character) < 128 for character in string)
+
+    def scan(self, stop_after_n_directories=None):
+        self.start_time = time.time()
+        for dirName, subdirList, fileList in os.walk(self.root_path):
+            self.file_count += len(fileList)
+            if self.is_ascii(dirName):
+                self.write_directory_to_db(Directory, {'directory_path':dirName})
+                self.dir_count += 1
+
+            for f in fileList:
+                p = os.path.join(dirName, f)
+                if self.is_ascii(p):
+                    file = File(p)
+                    self.process_file(file, p)
+                    fileList.pop(fileList.index(f))
+
+            if self.dir_count % 500 == 0:
+                print("Processed %s files in %s directories" % (self.file_count, self.dir_count))
+
+            if stop_after_n_directories and self.dir_count >= stop_after_n_directories:
+                # break for debug
+                break
+        self.end_time = time.time()
+
+    def process_file(self, file, p):
+        # TODO: this is gonna eat up memory quick, think about a way to stream these to disk or something
+        if not file.read:
+            self.problem_files[p] = file
+        else:
+            self.file_map[p] = file
+
+
+class DatabaseMixin():
+    def __init__(self):
+        pass
+
+if __name__ == "__main__":
+    excludes = ['boot','sys','proc','dev','run']
+    dirs = get_directory_root(excludes=excludes)
+    for d in dirs:
+        fw = FileWalker('/'+d)
+        fw.scan()
+        print "Processed %s files in %s directories rooted at %s in %s sec, (%s f/min. Directories added: %s and %s existed already.)" % (fw.file_count, fw.dir_count, fw.root_path, fw.scan_duration, fw.file_per_min, fw.dir_added, fw.dir_skipped)
