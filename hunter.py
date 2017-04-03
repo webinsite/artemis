@@ -20,6 +20,21 @@ engine = create_engine(config.SQLALCHEMY_DATABASE_URI)
 DBSession = sessionmaker(bind=engine)
 session = DBSession()
 
+
+class DatabaseMixin:
+    def __init__(self):
+        engine = create_engine(config.SQLALCHEMY_DATABASE_URI)
+        self.session = self.set_session(engine)
+
+    def set_session(self, engine):
+        DBSession = sessionmaker(bind=engine)
+        session = DBSession()
+        return session
+
+    def get_session(self):
+        return self.session
+
+
 def get_directory_root(excludes, directory='/'):
     """Return a list of the directories root after removing
     excluded directories.
@@ -100,19 +115,19 @@ class File:
 
                     h.update(chunk)
                 if phi:
-                    print self.path
+                    pass
         except TimeoutError, e:
             return False
         return h.hexdigest()
 
 
-class FileWalker:
+class FileWalker(DatabaseMixin):
     def __init__(self, path, ignored_dirs=[]):
         self.root_path = path
         self.metrics = {}
         self.file_count = 0
         self.dir_count = 0
-        self.dir_skipped = 0
+        self.dir_existed = 0
         self.dir_added = 0
         self.ignored_dirs = ['/dev','/boot']
 
@@ -121,8 +136,6 @@ class FileWalker:
 
         self.file_map = {}
         self.problem_files = {}
-
-        self.file_db = 'file_db.json'
 
     @property
     def scan_duration(self):
@@ -156,11 +169,14 @@ class FileWalker:
             return entry
         except IntegrityError, e:
             session.rollback()
-            self.dir_skipped += 1
+            self.dir_existed += 1
         return None
 
-    def write_directory_to_db(self, db_model, directory_path):
-        return self.write_db(db_model,directory_path)
+    def write_directory_to_db(self, directory_path):
+        return self.write_db(Directory, directory_path)
+
+    def write_scan_stats(self, kwargs):
+        return self.write_db(Scan, kwargs)
 
     def is_ascii(self, string):
         """Breaks loop if any character isn't valid ascii.  Its a dirty
@@ -177,7 +193,7 @@ class FileWalker:
         for dirName, subdirList, fileList in os.walk(self.root_path):
             self.file_count += len(fileList)
             if self.is_ascii(dirName):
-                self.write_directory_to_db(Directory, {'directory_path':dirName})
+                self.write_directory_to_db({'directory_path':dirName})
                 self.dir_count += 1
 
             for f in fileList:
@@ -194,6 +210,17 @@ class FileWalker:
                 # break for debug
                 break
         self.end_time = time.time()
+        payload = {
+                "added":self.dir_added,
+                "existed":self.dir_existed,
+                "type":"dir",
+                "path":self.root_path,
+                "total":self.dir_count,
+                "ended_epoch":self.end_time,
+                "started_epoch":self.start_time
+                }
+        self.write_scan_stats(payload)
+
 
     def process_file(self, file, p):
         # TODO: this is gonna eat up memory quick, think about a way to stream these to disk or something
@@ -203,9 +230,7 @@ class FileWalker:
             self.file_map[p] = file
 
 
-class DatabaseMixin():
-    def __init__(self):
-        pass
+
 
 if __name__ == "__main__":
     excludes = ['boot','sys','proc','dev','run']
@@ -213,4 +238,4 @@ if __name__ == "__main__":
     for d in dirs:
         fw = FileWalker('/'+d)
         fw.scan()
-        print "Processed %s files in %s directories rooted at %s in %s sec, (%s f/min. Directories added: %s and %s existed already.)" % (fw.file_count, fw.dir_count, fw.root_path, fw.scan_duration, fw.file_per_min, fw.dir_added, fw.dir_skipped)
+        print "Processed %s files in %s directories rooted at %s in %s sec, (%s f/min. Directories added: %s and %s existed already.)" % (fw.file_count, fw.dir_count, fw.root_path, fw.scan_duration, fw.file_per_min, fw.dir_added, fw.dir_existed)
