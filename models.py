@@ -35,10 +35,12 @@ class Filename(ScannerModelMixin, Base):
 class Scan(ScannerModelMixin, Base):
     ended_at = Column(DateTime, default=datetime.datetime.now())
     added = Column(Integer)
-    ignored = Column(Integer)
-    rejected = Column(Integer)
     existed = Column(Integer)
     total = Column(Integer)
+    started_epoch = Column(Integer)
+    ended_epoch = Column(Integer)
+    path = Column(String)
+    type = Column(String(4))
 
 
 engine = create_engine(config.SQLALCHEMY_DATABASE_URI)
