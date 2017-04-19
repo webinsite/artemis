@@ -180,6 +180,15 @@ class FileWalker(DatabaseMixin):
             self.dir_existed += 1
         return data
 
+    def write_file_to_db(self, filename, hash,  directory):
+        kwargs = {'filename':filename,'directory':directory}
+        data = self.write_db(Filename, kwargs)
+        if data:
+            pass
+        else:
+            pass
+        return data
+
     def write_scan_stats(self, kwargs):
         return self.write_db(Scan, kwargs)
 
@@ -198,7 +207,7 @@ class FileWalker(DatabaseMixin):
         for dirName, subdirList, fileList in os.walk(self.root_path):
             self.file_count += len(fileList)
             if self.is_ascii(dirName):
-                self.write_directory_to_db({'directory_path':dirName})
+                dir_id = self.write_directory_to_db({'directory_path':dirName})
                 self.dir_count += 1
 
             for f in fileList:
@@ -206,6 +215,7 @@ class FileWalker(DatabaseMixin):
                 if self.is_ascii(p):
                     file = File(p)
                     self.process_file(file, p)
+                    self.write_file_to_db(f, file.hash, dir_id)
                     fileList.pop(fileList.index(f))
 
             if self.dir_count % 500 == 0:
