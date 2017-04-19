@@ -21,18 +21,6 @@ DBSession = sessionmaker(bind=engine)
 session = DBSession()
 
 
-class DatabaseMixin:
-    def __init__(self):
-        engine = create_engine(config.SQLALCHEMY_DATABASE_URI)
-        self.session = self.set_session(engine)
-
-    def set_session(self, engine):
-        DBSession = sessionmaker(bind=engine)
-        session = DBSession()
-        return session
-
-    def get_session(self):
-        return self.session
 
 
 def get_directory_root(excludes, directory='/'):
@@ -47,6 +35,20 @@ def get_directory_root(excludes, directory='/'):
     I assume this will not work with self.scan_filesystem().
     """
     return list(set(os.listdir(directory)) - set(excludes))
+
+
+class DatabaseMixin:
+    def __init__(self):
+        engine = create_engine(config.SQLALCHEMY_DATABASE_URI)
+        self.session = self.set_session(engine)
+
+    def set_session(self, engine):
+        DBSession = sessionmaker(bind=engine)
+        session = DBSession()
+        return session
+
+    def get_session(self):
+        return self.session
 
 
 class FileDbEncoder(json.JSONEncoder):
@@ -165,15 +167,18 @@ class FileWalker(DatabaseMixin):
                 )
             session.add(entry)
             session.commit()
-            self.dir_added += 1
             return entry
         except IntegrityError, e:
             session.rollback()
-            self.dir_existed += 1
         return None
 
     def write_directory_to_db(self, directory_path):
-        return self.write_db(Directory, directory_path)
+        data = self.write_db(Directory, directory_path)
+        if data:
+            self.dir_added += 1
+        else:
+            self.dir_existed += 1
+        return data
 
     def write_scan_stats(self, kwargs):
         return self.write_db(Scan, kwargs)
