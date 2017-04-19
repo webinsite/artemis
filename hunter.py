@@ -131,6 +131,8 @@ class FileWalker(DatabaseMixin):
         self.dir_count = 0
         self.dir_existed = 0
         self.dir_added = 0
+        self.file_added = 0
+        self.file_existed = 0
         self.ignored_dirs = ['/dev','/boot']
 
         self.start_time = 0
@@ -184,9 +186,9 @@ class FileWalker(DatabaseMixin):
         kwargs = {'filename':filename,'directory':directory}
         data = self.write_db(Filename, kwargs)
         if data:
-            pass
+            self.file_added += 1
         else:
-            pass
+            self.file_existed += 1
         return data
 
     def write_scan_stats(self, kwargs):
