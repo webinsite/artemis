@@ -183,7 +183,7 @@ class FileWalker(DatabaseMixin):
         return data
 
     def write_file_to_db(self, filename, hash,  directory):
-        kwargs = {'filename':filename,'directory':directory}
+        kwargs = {'filename':filename,'directory':directory,'hash':hash}
         data = self.write_db(Filename, kwargs)
         if data:
             self.file_added += 1
