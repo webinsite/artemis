@@ -50,6 +50,27 @@ class DatabaseMixin:
     def get_session(self):
         return self.session
 
+    def write_db(self, db_model, kwargs):
+        """Try to add the directory path and hash to the Directory
+        database.  Rollback if the hash already exists
+
+        Keyword arguments:
+        directory_path -- Full path of the directory_path
+
+        Notes:
+        """
+        try:
+            entry = db_model(
+                created_at=datetime.datetime.now(),
+                **kwargs
+                )
+            self.session.add(entry)
+            self.session.commit()
+            return entry
+        except IntegrityError, e:
+            self.session.rollback()
+        return None
+
 
 class FileDbEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -155,27 +176,6 @@ class FileWalker:
             return None
         return round(self.file_count / ((self.end_time - self.start_time) / 60.0), 2)
 
-    def write_db(self, db_model, kwargs):
-        """Try to add the directory path and hash to the Directory
-        database.  Rollback if the hash already exists
-
-        Keyword arguments:
-        directory_path -- Full path of the directory_path
-
-        Notes:
-        """
-        try:
-            entry = db_model(
-                created_at=datetime.datetime.now(),
-                **kwargs
-                )
-            self.session.add(entry)
-            self.session.commit()
-            return entry
-        except IntegrityError, e:
-            self.session.rollback()
-        return None
-
     def write_directory_to_db(self, directory_path):
         data = self.write_db(Directory, directory_path)
         if data:
@@ -187,7 +187,7 @@ class FileWalker:
 
     def write_file_to_db(self, filename, hash,  directory):
         kwargs = {'filename':filename,'directory':directory,'hash':hash}
-        data = self.write_db(Filename, kwargs)
+        data = self.db.write_db(Filename, kwargs)
         if data:
             self.file_added += 1
         else:
@@ -196,7 +196,7 @@ class FileWalker:
         return data
 
     def write_scan_stats(self, kwargs):
-        return self.write_db(Scan, kwargs)
+        return self.db.write_db(Scan, kwargs)
 
     def is_ascii(self, string):
         """Breaks loop if any character isn't valid ascii.  Its a dirty
@@ -211,7 +211,6 @@ class FileWalker:
     def scan(self, stop_after_n_directories=None):
         self.start_time = time.time()
         for dirName, subdirList, fileList in os.walk(self.root_path):
-            #self.file_count += len(fileList)
             if self.is_ascii(dirName):
                 dir_id = self.write_directory_to_db({'directory_path':dirName})
 
