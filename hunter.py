@@ -180,6 +180,7 @@ class FileWalker(DatabaseMixin):
             self.dir_added += 1
         else:
             self.dir_existed += 1
+        self.dir_count += 1
         return data
 
     def write_file_to_db(self, filename, hash,  directory):
@@ -189,6 +190,7 @@ class FileWalker(DatabaseMixin):
             self.file_added += 1
         else:
             self.file_existed += 1
+        self.file_count += 1
         return data
 
     def write_scan_stats(self, kwargs):
@@ -207,10 +209,9 @@ class FileWalker(DatabaseMixin):
     def scan(self, stop_after_n_directories=None):
         self.start_time = time.time()
         for dirName, subdirList, fileList in os.walk(self.root_path):
-            self.file_count += len(fileList)
+            #self.file_count += len(fileList)
             if self.is_ascii(dirName):
                 dir_id = self.write_directory_to_db({'directory_path':dirName})
-                self.dir_count += 1
 
             for f in fileList:
                 p = os.path.join(dirName, f)
@@ -228,11 +229,13 @@ class FileWalker(DatabaseMixin):
                 break
         self.end_time = time.time()
         payload = {
-                "added":self.dir_added,
-                "existed":self.dir_existed,
-                "type":"dir",
+                "dir_added":self.dir_added,
+                "dir_existed":self.dir_existed,
+                "dir_total":self.dir_count,
                 "path":self.root_path,
-                "total":self.dir_count,
+                "file_added":self.file_added,
+                "file_existed":self.file_existed,
+                "file_total":self.file_count,
                 "ended_epoch":self.end_time,
                 "started_epoch":self.start_time
                 }
