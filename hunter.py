@@ -185,8 +185,7 @@ class FileWalker:
         self.dir_count += 1
         return data
 
-    def write_file_to_db(self, filename, hash,  directory):
-        kwargs = {'filename':filename,'directory':directory,'hash':hash}
+    def write_file_to_db(self, kwargs):
         data = self.db.write_db(Filename, kwargs)
         if data:
             self.file_added += 1
@@ -219,7 +218,7 @@ class FileWalker:
                 if self.is_ascii(p):
                     file = File(p)
                     self.process_file(file, p)
-                    self.write_file_to_db(f, file.hash, dir_id)
+                    self.write_file_to_db({'filename':f,'directory':dir_id,'hash':file.hash})
                     fileList.pop(fileList.index(f))
 
             if self.dir_count % 500 == 0:
