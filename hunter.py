@@ -39,10 +39,10 @@ def get_directory_root(excludes, directory='/'):
 
 class DatabaseMixin:
     def __init__(self):
-        engine = create_engine(config.SQLALCHEMY_DATABASE_URI)
-        self.session = self.set_session(engine)
+        self.engine = create_engine(config.SQLALCHEMY_DATABASE_URI)
+        self.session = self.set_session()
 
-    def set_session(self, engine):
+    def set_session(self, engine=self.engine):
         DBSession = sessionmaker(bind=engine)
         session = DBSession()
         return session
@@ -123,8 +123,10 @@ class File:
         return h.hexdigest()
 
 
-class FileWalker(DatabaseMixin):
+class FileWalker:
     def __init__(self, path, ignored_dirs=[]):
+        self.db = DatabaseMixin()
+        self.session = self.db.get_session()
         self.root_path = path
         self.metrics = {}
         self.file_count = 0
@@ -167,11 +169,11 @@ class FileWalker(DatabaseMixin):
                 created_at=datetime.datetime.now(),
                 **kwargs
                 )
-            session.add(entry)
-            session.commit()
+            self.session.add(entry)
+            self.session.commit()
             return entry
         except IntegrityError, e:
-            session.rollback()
+            self.session.rollback()
         return None
 
     def write_directory_to_db(self, directory_path):
@@ -243,7 +245,6 @@ class FileWalker(DatabaseMixin):
 
 
     def process_file(self, file, p):
-        # TODO: this is gonna eat up memory quick, think about a way to stream these to disk or something
         if not file.read:
             self.problem_files[p] = file
         else:
