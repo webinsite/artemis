@@ -177,7 +177,7 @@ class FileWalker:
         return round(self.file_count / ((self.end_time - self.start_time) / 60.0), 2)
 
     def write_directory_to_db(self, directory_path):
-        data = self.write_db(Directory, directory_path)
+        data = self.db.write_db(Directory, directory_path)
         if data:
             self.dir_added += 1
         else:
