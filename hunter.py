@@ -42,8 +42,8 @@ class DatabaseMixin:
         self.engine = create_engine(config.SQLALCHEMY_DATABASE_URI)
         self.session = self.set_session()
 
-    def set_session(self, engine=self.engine):
-        DBSession = sessionmaker(bind=engine)
+    def set_session(self):
+        DBSession = sessionmaker(bind=self.engine)
         session = DBSession()
         return session
 
